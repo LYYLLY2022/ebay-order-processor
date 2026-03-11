@@ -103,7 +103,7 @@ class OrderProcessor {
                     }
 
                     // 检查必需字段
-                    const requiredFields = ['eBay帐号', '站点', '货币', '总额', '购买日期'];
+                    const requiredFields = ['eBay帐号', '站点', '货币', '总额', '付款日期'];
                     const missingFields = requiredFields.filter(field => !headers.includes(field));
                     
                     if (missingFields.length > 0) {
@@ -116,7 +116,7 @@ class OrderProcessor {
                         '站点': headers.indexOf('站点'),
                         '货币': headers.indexOf('货币'),
                         '总额': headers.indexOf('总额'),
-                        '购买日期': headers.indexOf('购买日期')
+                        '付款日期': headers.indexOf('付款日期')
                     };
 
                     // 解析数据行（从第二行开始）
@@ -167,7 +167,7 @@ class OrderProcessor {
         const site = rowData[this.headerIndices['站点']] || '';
         const currency = rowData[this.headerIndices['货币']] || '';
         const totalAmount = rowData[this.headerIndices['总额']] || '0';
-        const purchaseDate = rowData[this.headerIndices['购买日期']] || '';
+        const paymentDate = rowData[this.headerIndices['付款日期']] || '';
 
         // 1. 站点名称标准化
         let normalizedSite = site;
@@ -197,32 +197,38 @@ class OrderProcessor {
         const exchangeRate = this.exchangeRates[currency] || 1;
         const usdAmount = amount * exchangeRate;
 
-        // 5. 时区转换与格式化
+        // 5. 时区转换与格式化（处理付款日期）
         let formattedDate = '';
         try {
             // 解析原始时间 (格式: YYYYMMDD HH:mm:ss)
-            if (purchaseDate && purchaseDate.length >= 17) {
-                const year = purchaseDate.substring(0, 4);
-                const month = purchaseDate.substring(4, 6);
-                const day = purchaseDate.substring(6, 8);
-                const hour = parseInt(purchaseDate.substring(9, 11));
-                const minute = parseInt(purchaseDate.substring(12, 14));
-                const second = parseInt(purchaseDate.substring(15, 17));
+            if (paymentDate && paymentDate.length >= 17) {
+                const year = parseInt(paymentDate.substring(0, 4));
+                const month = parseInt(paymentDate.substring(4, 6));
+                const day = parseInt(paymentDate.substring(6, 8));
+                const hour = parseInt(paymentDate.substring(9, 11));
+                const minute = parseInt(paymentDate.substring(12, 14));
+                const second = parseInt(paymentDate.substring(15, 17));
 
-                // 创建 Date 对象 (假设是 UTC+8)
-                const date = new Date(year, month - 1, day, hour, minute, second);
+                // 创建 Date 对象并设置为 UTC 时间（避免本地时区干扰）
+                const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
 
-                // 减去 15 小时转换为 UTC
-                date.setHours(date.getHours() - 15);
+                // 减去 15 小时转换为 UTC 时间
+                const utcTime = date.getTime() - (15 * 60 * 60 * 1000);
+                const utcDate = new Date(utcTime);
+
+                // 使用 UTC 方法获取日期部分，避免本地时区影响
+                const utcYear = utcDate.getUTCFullYear();
+                const utcMonth = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+                const utcDay = String(utcDate.getUTCDate()).padStart(2, '0');
 
                 // 格式化为 YYYY-MM-DD
-                formattedDate = date.toISOString().split('T')[0];
+                formattedDate = `${utcYear}-${utcMonth}-${utcDay}`;
             }
         } catch (e) {
-            console.error('日期解析错误:', e);
-            formattedDate = purchaseDate.substring(0, 4) + '-' + 
-                           purchaseDate.substring(4, 6) + '-' + 
-                           purchaseDate.substring(6, 8);
+            console.error('日期解析错误:', e, paymentDate);
+            formattedDate = paymentDate.substring(0, 4) + '-' +
+                           paymentDate.substring(4, 6) + '-' +
+                           paymentDate.substring(6, 8);
         }
 
         return {
@@ -328,7 +334,7 @@ class OrderProcessor {
         const workbook = XLSX.utils.book_new();
 
         // 准备数据
-        const header = ['购买日期(UTC)', 'eBay帐号', '站点', '货币', '原始货币总额', '总额(折算USD)'];
+        const header = ['付款日期(UTC)', 'eBay帐号', '站点', '货币', '原始货币总额', '总额(折算USD)'];
         const rows = this.processedData.map(item => [
             item.date,
             item.ebayAccount,
@@ -361,7 +367,7 @@ class OrderProcessor {
 
         // 设置列宽
         ws['!cols'] = [
-            { wch: 15 }, // 购买日期
+            { wch: 15 }, // 付款日期
             { wch: 20 }, // eBay帐号
             { wch: 10 }, // 站点
             { wch: 8 },  // 货币
@@ -579,3 +585,4 @@ class UIController {
 document.addEventListener('DOMContentLoaded', () => {
     new UIController();
 });
+Fix timezone conversion logic
